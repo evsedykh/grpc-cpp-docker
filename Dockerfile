@@ -15,57 +15,65 @@
 #
 # Based on https://hub.docker.com/r/grpc/cxx.
 
-FROM debian:stretch as build
+FROM debian:latest as build
 
 RUN apt-get update && apt-get install -y \
   autoconf \
   automake \
   build-essential \
-  cmake \
   curl \
-  g++ \
   git \
   libtool \
+  wget \
   make \
   pkg-config \
   unzip \
   && apt-get clean
 
-ENV GRPC_RELEASE_TAG v1.16.0
-ENV CALCULATOR_BUILD_PATH /usr/local/calculator
+ENV MY_INSTALL_DIR /var/local/
+ENV CALCULATOR_BUILD_PATH /usr/local/dispersion
 
-RUN git clone -b ${GRPC_RELEASE_TAG} https://github.com/grpc/grpc /var/local/git/grpc && \
+RUN git clone --recurse-submodules -b v1.50.0 --depth 1 --shallow-submodules https://github.com/grpc/grpc /var/local/git/grpc && \
     cd /var/local/git/grpc && \
     git submodule update --init --recursive
 
-RUN echo "-- installing protobuf" && \
-    cd /var/local/git/grpc/third_party/protobuf && \
-    ./autogen.sh && ./configure --enable-shared && \
-    make -j$(nproc) && make -j$(nproc) check && make install && make clean && ldconfig
+RUN wget -q -O cmake-linux.sh https://github.com/Kitware/CMake/releases/download/v3.19.6/cmake-3.19.6-Linux-x86_64.sh && \
+    sh cmake-linux.sh -- --skip-license --prefix=$MY_INSTALL_DIR && \
+    rm cmake-linux.sh
+
+RUN export PATH="$MY_INSTALL_DIR/bin:$PATH" && \
+    cmake --version
 
 RUN echo "-- installing grpc" && \
     cd /var/local/git/grpc && \
-    make -j$(nproc) && make install && make clean && ldconfig
+    mkdir -p cmake/build && \
+    cd cmake/build && \
+    export PATH="$MY_INSTALL_DIR/bin:$PATH" && \
+    cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
+    make -j$(nproc) && make install && cd -
 
-COPY . $CALCULATOR_BUILD_PATH/src/calculator/
+COPY . $CALCULATOR_BUILD_PATH/src/dispersion/
 
-RUN echo "-- building calculator" && \
-    mkdir -p $CALCULATOR_BUILD_PATH/out/calculator && \
-    cd $CALCULATOR_BUILD_PATH/out/calculator && \
-    cmake -DCMAKE_BUILD_TYPE=Release $CALCULATOR_BUILD_PATH/src/calculator && \
+RUN ls -l $CALCULATOR_BUILD_PATH/src/dispersion
+
+RUN echo "-- building dispersion calculator" && \
+    export PATH="$MY_INSTALL_DIR/bin:$PATH" && \
+    mkdir -p $CALCULATOR_BUILD_PATH/out/dispersion && \
+    cd $CALCULATOR_BUILD_PATH/out/dispersion && \
+    cmake -DCMAKE_BUILD_TYPE=Release $CALCULATOR_BUILD_PATH/src/dispersion && g++ -v && \
     make && \
     mkdir -p bin && \
-    ldd calculator | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' bin/ && \
-    mv calculator bin/calculator && \
-    echo "LD_LIBRARY_PATH=/opt/calculator/:\$LD_LIBRARY_PATH ./calculator" > bin/start.sh && \
-    chmod +x bin/start.sh
+    ldd dispersion_local | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' bin/ && \
+    mv dispersion* bin/ && \
+    echo "LD_LIBRARY_PATH=/opt/dispersion/:\$LD_LIBRARY_PATH ./dispersion_local" > bin/start.sh && \
+    chmod +x bin/start.sh && ls /usr/local/dispersion/src/dispersion 
 
 WORKDIR $CALCULATOR_BUILD_PATH
 ENTRYPOINT ["/bin/bash"]
 CMD ["-s"]
 
-FROM debian:stretch as runtime
-COPY --from=build /usr/local/calculator/out/calculator/bin/ /opt/calculator/
+FROM debian:latest as runtime
+COPY --from=build /usr/local/dispersion/out/dispersion/bin/dispersion* /usr/local/dispersion/src/dispersion/run.sh  /opt/dispersion/
 EXPOSE 8080
-WORKDIR /opt/calculator/
+WORKDIR /opt/dispersion/
 ENTRYPOINT ["/bin/bash", "start.sh"]
