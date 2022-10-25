@@ -1,28 +1,76 @@
-cmake_minimum_required (VERSION 3.7.2)
-project (repository CXX)
+# Copyright 2018 gRPC authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# cmake build file for C++ helloworld example.
+# Assumes protobuf and gRPC have been installed using cmake.
+# See cmake_externalproject/CMakeLists.txt for all-in-one cmake build
+# that automatically builds all the dependencies before building helloworld.
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/build/cmake/")
-set(PROTOBUF_IMPORT_DIRS "${CMAKE_SOURCE_DIR}/")
+cmake_minimum_required(VERSION 3.5.1)
 
-add_definitions(-DNDEBUG)
+project(Dispersion C CXX)
 
-find_package (Protobuf REQUIRED)
-find_package (GRPC REQUIRED)
-PROTOBUF_GENERATE_CPP(PROTO_SRCS PROTO_HDRS calculator_service.proto)
-PROTOBUF_GENERATE_GRPC_CPP(GRPC_SRCS GRPC_HDRS calculator_service.proto)
+set(CMAKE_CXX_STANDARD 17)
 
-include_directories(${PROTOBUF_INCLUDE_DIR})
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include(/var/local/git/grpc/examples/cpp/cmake/common.cmake)
 
-add_executable(calculator
-    calculator_service.cpp
-    calculator_service.hpp
-    calculator_service.pb.cc
-    calculator_service.pb.h
-    calculator_service.grpc.pb.cc
-    calculator_service.grpc.pb.h
-    main.cpp
-    )
+# Proto file
+get_filename_component(dispersion_proto "dispersion.proto" ABSOLUTE)
+get_filename_component(dispersion_proto_path "${dispersion_proto}" PATH)
 
-set_property(TARGET calculator PROPERTY CXX_STANDARD 14)
-target_link_libraries(calculator ${PROTOBUF_LIBRARIES} ${GRPC_LIBRARIES})
+# Generated sources
+set(dispersion_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/dispersion.pb.cc")
+set(dispersion_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/dispersion.pb.h")
+set(dispersion_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/dispersion.grpc.pb.cc")
+set(dispersion_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/dispersion.grpc.pb.h")
+add_custom_command(
+      OUTPUT "${dispersion_proto_srcs}" "${dispersion_proto_hdrs}" "${dispersion_grpc_srcs}" "${dispersion_grpc_hdrs}"
+      COMMAND ${_PROTOBUF_PROTOC}
+      ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
+        --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
+        -I "${dispersion_proto_path}"
+        --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
+        "${dispersion_proto}"
+      DEPENDS "${dispersion_proto}")
+
+# Include generated *.pb.h files
+include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+
+# dispersion_grpc_proto
+add_library(dispersion_grpc_proto
+  ${dispersion_grpc_srcs}
+  ${dispersion_grpc_hdrs}
+  ${dispersion_proto_srcs}
+  ${dispersion_proto_hdrs})
+target_link_libraries(dispersion_grpc_proto
+  ${_REFLECTION}
+  ${_GRPC_GRPCPP}
+  ${_PROTOBUF_LIBPROTOBUF})
+
+# Targets dispersion_](client|server|local)
+foreach(_target
+  dispersion_node dispersion_local)
+  add_executable(${_target} "${_target}.cc"
+                 "dispersion_types.h" "dispersion_results.h"
+                 "dispersion_calculation.h" "dispersion_calculation.cc")
+  target_link_libraries(${_target}
+    dispersion_grpc_proto
+    ${_REFLECTION}
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF})
+endforeach()
+
+add_custom_command(TARGET dispersion_local POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/dispersion?.txt $<TARGET_FILE_DIR:dispersion_local>)
