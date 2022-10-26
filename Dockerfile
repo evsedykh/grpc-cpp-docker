@@ -54,8 +54,6 @@ RUN echo "-- installing grpc" && \
 
 COPY . $CALCULATOR_BUILD_PATH/src/dispersion/
 
-RUN ls -l $CALCULATOR_BUILD_PATH/src/dispersion
-
 RUN echo "-- building dispersion calculator" && \
     export PATH="$MY_INSTALL_DIR/bin:$PATH" && \
     mkdir -p $CALCULATOR_BUILD_PATH/out/dispersion && \
@@ -66,14 +64,14 @@ RUN echo "-- building dispersion calculator" && \
     ldd dispersion_local | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' bin/ && \
     mv dispersion* bin/ && \
     echo "LD_LIBRARY_PATH=/opt/dispersion/:\$LD_LIBRARY_PATH ./dispersion_local" > bin/start.sh && \
-    chmod +x bin/start.sh && ls /usr/local/dispersion/src/dispersion 
+    chmod +x bin/start.sh 
 
 WORKDIR $CALCULATOR_BUILD_PATH
 ENTRYPOINT ["/bin/bash"]
 CMD ["-s"]
 
 FROM debian:latest as runtime
-COPY --from=build /usr/local/dispersion/out/dispersion/bin/dispersion* /usr/local/dispersion/src/dispersion/run.sh  /opt/dispersion/
+COPY --from=build /usr/local/dispersion/out/dispersion/bin/dispersion* /usr/local/dispersion/src/dispersion/run.sh /opt/dispersion/
 EXPOSE 8080
 WORKDIR /opt/dispersion/
 ENTRYPOINT ["/bin/bash", "start.sh"]
